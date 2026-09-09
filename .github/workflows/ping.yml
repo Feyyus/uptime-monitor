@@ -13,16 +13,27 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # ручной запуск (кнопка Run workflow) шлёт отчёт всегда, по расписанию — молча, только при падении
+          EXPLICIT: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           set -e
           SITES="https://3x3.team http://31.28.5.203"
+          summary=""
+          any_down=0
           for url in $SITES; do
             code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$url" || echo "000")
             echo "$url -> $code"
             if [ "$code" -lt 200 ] || [ "$code" -ge 400 ]; then
-              text="⚠️ $url отвечает $code (или не отвечает вовсе) — $(date -u +'%Y-%m-%d %H:%M UTC')"
-              curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                -d chat_id="${TELEGRAM_CHAT_ID}" \
-                -d text="$text"
+              summary="${summary}⚠️ $url — $code (не отвечает)\n"
+              any_down=1
+            else
+              summary="${summary}✅ $url — $code\n"
             fi
           done
+
+          if [ "$any_down" = "1" ] || [ "$EXPLICIT" = "true" ]; then
+            text="Проверка $(date -u +'%Y-%m-%d %H:%M UTC')\n${summary}"
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              -d text="$(printf "$text")"
+          fi
